@@ -1,0 +1,3 @@
+requests
+discord.py[voice]
+python-dotenv
