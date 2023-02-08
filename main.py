@@ -55,9 +55,9 @@ class ConnectedChannel:
 
 connected_channels: list[ConnectedChannel] = []
 
+host = VV_HOST
+port = 50021
 def generate_wav(text, speaker=1, filename='audio.wav'):
-    host = VV_HOST
-    port = 50021
     params = (
         ('text', text),
         ('speaker', speaker),
@@ -82,6 +82,10 @@ def get_speaker_info(spaker_id: int) -> str:
 
 def find_url(content: str):
     return re.findall('https?://[A-Za-z0-9_/:%#$&?()~.=+-]+?(?=https?:|[^A-Za-z0-9_/:%#$&?()~.=+-]|$)', content)
+def find_stamp(content: str):
+    return re.findall('<:.*:[0-9]*>', content)
+def find_mention(content: str):
+    return re.findall('<@[0-9]*>', content)
 
 @client.event
 async def on_ready():
@@ -132,7 +136,7 @@ async def on_message(message: discord.Message):
             users = list(filter(lambda user : user.user_id == message.author.id ,channels[0].users))
             if len(users) > 0:
                 try:
-                    name = message.content.split(":")[1]
+                    name = message.content.split(">")[1]
                     index = speakername_list.index(name)
                     users[0].voicevox_id = speaker_list[index]
                     await message.channel.send(f"{message.author.display_name}さんの声を「{name}」にしました")
@@ -145,14 +149,56 @@ async def on_message(message: discord.Message):
         for name in speakername_list:
             rtnstr += name + "\n"
         await message.channel.send(rtnstr)
+    elif message.content == "!listdict":
+        res = requests.get(f'http://{host}:{port}/user_dict')
+        rtnstr = ""
+        jsonres = res.json()
+        rtnstr += f"ID:表記:発音（カタカナ）:音が下がる場所\n"
+        for key in jsonres:
+            rtnstr += f"{key}:{jsonres[key]['surface']}:{jsonres[key]['pronunciation']}:{jsonres[key]['accent_type']}\n"
+        await message.channel.send(rtnstr)
+    elif message.content.find("!adddict") != -1:
+        cmds = message.content.split(">")
+        if len(cmds) != 4 or int(cmds[3]) > len(cmds[2]):
+            await message.channel.send("引数が不正です")
+            return
+        params = (
+            ('surface', cmds[1]),
+            ('pronunciation', cmds[2]),
+            ('accent_type', int(cmds[3]))
+        )
+        res = requests.post(f'http://{host}:{port}/user_dict_word', params=params)
+        if res.ok:
+            await message.channel.send(":white_check_mark:追加に成功しました")
+        else:
+            await message.channel.send(":dizzy_face:追加に失敗しました")
+            print(res.text)
+    elif message.content.find("!deldict") != -1:
+        cmds = message.content.split(">")
+        if len(cmds) != 2:
+            await message.channel.send("引数が不正です")
+            return
+        res = requests.delete(f'http://{host}:{port}/user_dict_word/{cmds[1]}')
+        if res.ok:
+            await message.channel.send(":wastebasket:削除に成功しました")
+        else:
+            await message.channel.send(":dizzy_face:削除に失敗しました")
+            print(res.text)
     else:
         channels = list(filter(lambda channel : channel.text_channel_id == message.channel.id ,connected_channels))
         if len(channels) > 0:
             urls = find_url(message.content)
+            stamps = find_stamp(message.content)
+            mentions = find_mention(message.content)
             content = message.content
+            print(content)
             print(urls)
             for url in urls:
                 content = content.replace(url,"")
+            for stamp in stamps:
+                content = content.replace(stamp,"")
+            for mention in mentions:
+                content = content.replace(mention,"")
             if len(content) == 0:
                 return
             channels[0].say(content, message.author.id, message)
