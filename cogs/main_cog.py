@@ -1,4 +1,4 @@
-from discord.ext import commands, tasks
+from discord.ext import commands
 from discord import app_commands
 import discord
 from dataclasses import dataclass
@@ -43,7 +43,7 @@ def generate_wav(text, speaker=1, filename='audio.wav'):
         params=params,
         data=json.dumps(response1.json())
     )
-    with open("./audio/"+filename, 'wb') as f:
+    with open("./audio/" + filename, 'wb') as f:
         f.write(response2.content)
 
 
@@ -75,12 +75,12 @@ class ConnectedChannel:
                 user_id, self.speaker_list[self.select_speaker_index].id)
 
         target = self.users[user_id]
-        filename = str(uuid.uuid4())+".wav"
+        filename = str(uuid.uuid4()) + ".wav"
         generate_wav(content, speaker=target.voicevox_id, filename=filename)
         while message.guild.voice_client.is_playing():
             pass
         message.guild.voice_client.play(discord.FFmpegPCMAudio(
-            "./audio/"+filename), after=lambda ex: os.remove(f"./audio/{filename}"))
+            "./audio/" + filename), after=lambda ex: os.remove(f"./audio/{filename}"))
 
 
 class MainCog(commands.Cog):
@@ -94,7 +94,8 @@ class MainCog(commands.Cog):
         with open("../speaker.csv", "r") as f:
             reader = csv.reader(f)
             for row in reader:
-                self.speaker_list.append(Speaker(int(row[0]), row[1]))
+                speaker_id = int(row[0])
+                self.speaker_list[speaker_id] = Speaker(speaker_id, row[1])
 
     @commands.Cog.listener()
     async def on_ready(self):
@@ -125,41 +126,41 @@ class MainCog(commands.Cog):
         channel.say(message.content, message.author.id, message)
 
     @app_commands.command(name="join", description="ボイスチャンネルに参加します")
-    async def join(self, interaction: discord.interactions):
+    async def join(self, interaction: discord.Interaction):
         if interaction.author.voice is None:
             return await interaction.response.send_message("ボイスチャンネルに参加してください")
-        await interaction.author.voice.channel.connect()
+        await interaction.user.voice.channel.connect()
         await interaction.response.send_message("参加しました")
         self.connected_channels[interaction.channel_id] = (
             ConnectedChannel(interaction.channel_id))
         print(self.connected_channels)
 
     @app_commands.command(name="leave", description="ボイスチャンネルから退出します")
-    async def leave(self, interaction: discord.interactions):
+    async def leave(self, interaction: discord.Interaction):
         if interaction.guild.voice_client is None:
             return await interaction.response.send_message("ボイスチャンネルに参加していません")
         await interaction.guild.voice_client.disconnect()
         await interaction.response.send_message("退出しました")
-        self.connected_channels.remove(interaction.channel_id)
+        del self.connected_channels[interaction.channel_id]
 
     @app_commands.command(name="speakerinfo", description="キャラクター情報を表示します")
-    async def speakerinfo(self, interaction: discord.interactions):
+    async def speakerinfo(self, interaction: discord.Interaction):
         if interaction.guild.voice_client is None:
             return await interaction.response.send_message("ボイスチャンネルに参加していません")
 
         channel = self.connected_channels[interaction.channel_id]
-        if interaction.author.id not in channel.users:
+        if interaction.user.id not in channel.users:
             return await interaction.response.send_message("未登録です")
 
-        user = channel.users[interaction.author.id]
+        user = channel.users[interaction.user.id]
         await interaction.response.send_message(f"{interaction.author.display_name}:{str(user.voicevox_id)}")
 
     @app_commands.command(name="setspeaker", description="キャラクターを変更します")
     @app_commands.describe(speaker_id="キャラクターIDを入力してください(/speakerlistで確認できます)")
-    async def setspeaker(self, interaction: discord.interactions, speaker_id: int):
+    async def setspeaker(self, interaction: discord.Interaction, speaker_id: int):
         if interaction.guild.voice_client is None:
             return await interaction.response.send_message("ボイスチャンネルに参加していません")
-        if interaction.user not in channel.users:
+        if interaction.user not in interaction.channel.users:
             return await interaction.response.send_message("喋るユーザーに登録されていません。何か書き込んでから再度試して下さい")
         if speaker_id in self.speaker_list:
             return await interaction.response.send_message("存在しないキャラクターです")
@@ -169,7 +170,7 @@ class MainCog(commands.Cog):
         return await interaction.response.send_message(f"{interaction.author.display_name}:{str(user.voicevox_id)}")
 
     @app_commands.command(name="speakerlist", description="キャラクター一覧を表示します")
-    async def speakerlist(self, interaction: discord.interactions):
+    async def speakerlist(self, interaction: discord.Interaction):
         message = "```"
         for speaker in self.speaker_list:
             message += f"{speaker.id}:{speaker.name}\n"
@@ -177,18 +178,18 @@ class MainCog(commands.Cog):
         return await interaction.response.send_message(message)
 
     @app_commands.command(name="dict", description="辞書を表示します")
-    async def dict(self, interaction: discord.interactions):
+    async def dict(self, interaction: discord.Interaction):
         res = requests.get(f'http://{host}:{port}/user_dict')
         rtnstr = ""
         jsonres = res.json()
-        rtnstr += f"ID:表記:発音（カタカナ）:音が下がる場所\n"
+        rtnstr += "ID:表記:発音（カタカナ）:音が下がる場所\n"
         for key in jsonres:
             rtnstr += f"{key}:{jsonres[key]['surface']}:{jsonres[key]['pronunciation']}:{jsonres[key]['accent_type']}\n"
         await interaction.response.send_message(rtnstr)
 
     @app_commands.command(name="add", description="辞書に単語を追加します")
     @app_commands.describe(surface="表記", pronunciation="発音（カタカナ）", accent_type="音が下がる場所")
-    async def add(self, interaction: discord.interactions, surface: str, pronunciation: str, accent_type: int):
+    async def add(self, interaction: discord.Interaction, surface: str, pronunciation: str, accent_type: int):
         params = {'surface': surface, 'pronunciation': pronunciation,
                   'accent_type': accent_type}
         res = requests.post(
@@ -200,7 +201,7 @@ class MainCog(commands.Cog):
 
     @app_commands.command(name="delete", description="辞書から単語を削除します")
     @app_commands.describe(word_id="単語のIDを入力してください(/dictで確認できます)")
-    async def delete(self, interaction: discord.interactions, word_id: int):
+    async def delete(self, interaction: discord.Interaction, word_id: int):
         res = requests.delete(
             f'http://{host}:{port}/user_dict_word/{word_id}')
         if res.ok:
